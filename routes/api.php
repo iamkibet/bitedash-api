@@ -30,6 +30,25 @@ Route::prefix('v1')->group(function (): void {
     // Paystack webhook (must be public, signature-verified)
     Route::post('/payments/webhook', [PaymentController::class, 'webhook'])
         ->name('api.v1.payments.webhook');
+
+    // Public browsing routes - stores and menu items
+    Route::get('/stores', [RestaurantController::class, 'index'])->name('api.v1.stores.index');
+    // Protected route for restaurant owners - must be before parameterized route
+    Route::get('/stores/my-store', [RestaurantController::class, 'myStore'])
+        ->middleware(['auth:sanctum', 'role:restaurant'])
+        ->name('api.v1.stores.my-store');
+    Route::get('/stores/{restaurant}', [RestaurantController::class, 'show'])->name('api.v1.stores.show');
+    Route::get('/stores/{restaurant}/menu-items', [MenuItemController::class, 'index'])->name('api.v1.menu-items.index');
+    Route::get('/menu-items/{menuItem}', [MenuItemController::class, 'show'])->name('api.v1.menu-items.show');
+
+    // Backward compatibility routes (deprecated - use /stores instead)
+    Route::get('/restaurants', [RestaurantController::class, 'index'])->name('api.v1.restaurants.index');
+    // Protected route for restaurant owners - must be before parameterized route
+    Route::get('/restaurants/my-store', [RestaurantController::class, 'myStore'])
+        ->middleware(['auth:sanctum', 'role:restaurant'])
+        ->name('api.v1.restaurants.my-store');
+    Route::get('/restaurants/{restaurant}', [RestaurantController::class, 'show'])->name('api.v1.restaurants.show');
+    Route::get('/restaurants/{restaurant}/menu-items', [MenuItemController::class, 'index'])->name('api.v1.restaurants.menu-items.index');
 });
 
 // Protected routes
@@ -43,15 +62,10 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function (): void {
     Route::get('/users', [UserController::class, 'index'])->name('api.v1.users.index');
     Route::get('/riders', [UserController::class, 'riders'])->name('api.v1.riders');
 
-    // Store routes (formerly restaurants)
-    Route::get('/stores', [RestaurantController::class, 'index'])->name('api.v1.stores.index');
-    Route::get('/stores/my-store', [RestaurantController::class, 'myStore'])
-        ->middleware('role:restaurant')
-        ->name('api.v1.stores.my-store');
+    // Store management routes (protected - for restaurant owners)
     Route::post('/stores', [RestaurantController::class, 'store'])
         ->middleware('role:restaurant')
         ->name('api.v1.stores.store');
-    Route::get('/stores/{restaurant}', [RestaurantController::class, 'show'])->name('api.v1.stores.show');
     Route::put('/stores/{restaurant}', [RestaurantController::class, 'update'])->name('api.v1.stores.update');
     Route::patch('/stores/{restaurant}', [RestaurantController::class, 'update'])->name('api.v1.stores.patch');
     Route::delete('/stores/{restaurant}', [RestaurantController::class, 'destroy'])->name('api.v1.stores.destroy');
@@ -60,14 +74,9 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.stores.toggle-status');
 
     // Backward compatibility routes (deprecated - use /stores instead)
-    Route::get('/restaurants', [RestaurantController::class, 'index'])->name('api.v1.restaurants.index');
-    Route::get('/restaurants/my-store', [RestaurantController::class, 'myStore'])
-        ->middleware('role:restaurant')
-        ->name('api.v1.restaurants.my-store');
     Route::post('/restaurants', [RestaurantController::class, 'store'])
         ->middleware('role:restaurant')
         ->name('api.v1.restaurants.store');
-    Route::get('/restaurants/{restaurant}', [RestaurantController::class, 'show'])->name('api.v1.restaurants.show');
     Route::put('/restaurants/{restaurant}', [RestaurantController::class, 'update'])->name('api.v1.restaurants.update');
     Route::patch('/restaurants/{restaurant}', [RestaurantController::class, 'update'])->name('api.v1.restaurants.patch');
     Route::delete('/restaurants/{restaurant}', [RestaurantController::class, 'destroy'])->name('api.v1.restaurants.destroy');
@@ -75,17 +84,13 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function (): void {
         ->middleware('role:restaurant')
         ->name('api.v1.restaurants.toggle-status');
 
-    // Menu Item routes (nested under stores)
-    Route::get('/stores/{restaurant}/menu-items', [MenuItemController::class, 'index'])->name('api.v1.menu-items.index');
-    // Backward compatibility
-    Route::get('/restaurants/{restaurant}/menu-items', [MenuItemController::class, 'index'])->name('api.v1.restaurants.menu-items.index');
+    // Menu Item management routes (protected - for restaurant owners)
     Route::get('/menu-items/my-restaurant', [MenuItemController::class, 'myMenuItems'])
         ->middleware('role:restaurant')
         ->name('api.v1.menu-items.my-restaurant');
     Route::post('/menu-items', [MenuItemController::class, 'store'])
         ->middleware('role:restaurant')
         ->name('api.v1.menu-items.store');
-    Route::get('/menu-items/{menuItem}', [MenuItemController::class, 'show'])->name('api.v1.menu-items.show');
     Route::put('/menu-items/{menuItem}', [MenuItemController::class, 'update'])->name('api.v1.menu-items.update');
     Route::patch('/menu-items/{menuItem}', [MenuItemController::class, 'update'])->name('api.v1.menu-items.patch');
     Route::delete('/menu-items/{menuItem}', [MenuItemController::class, 'destroy'])->name('api.v1.menu-items.destroy');
@@ -98,12 +103,16 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function (): void {
     Route::post('/orders', [OrderController::class, 'store'])
         ->middleware('role:customer')
         ->name('api.v1.orders.store');
+    // Specific routes must come before parameterized routes
     Route::get('/orders/available', [OrderController::class, 'availableForRiders'])
         ->middleware('role:rider')
         ->name('api.v1.orders.available');
     Route::get('/orders/my-rider', [OrderController::class, 'myRiderOrders'])
         ->middleware('role:rider')
         ->name('api.v1.orders.my-rider');
+    Route::get('/orders/my-restaurant', [OrderController::class, 'myRestaurantOrders'])
+        ->middleware('role:restaurant')
+        ->name('api.v1.orders.my-restaurant');
     Route::get('/orders/{order}', [OrderController::class, 'show'])->name('api.v1.orders.show');
     Route::put('/orders/{order}', [OrderController::class, 'update'])->name('api.v1.orders.update');
     Route::patch('/orders/{order}', [OrderController::class, 'update'])->name('api.v1.orders.patch');
@@ -112,9 +121,6 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function (): void {
     Route::post('/orders/{order}/accept', [OrderController::class, 'accept'])
         ->middleware('role:rider')
         ->name('api.v1.orders.accept');
-    Route::get('/orders/my-restaurant', [OrderController::class, 'myRestaurantOrders'])
-        ->middleware('role:restaurant')
-        ->name('api.v1.orders.my-restaurant');
     Route::get('/stores/{restaurant}/orders', [OrderController::class, 'restaurantOrders'])
         ->middleware('role:restaurant')
         ->name('api.v1.stores.orders');

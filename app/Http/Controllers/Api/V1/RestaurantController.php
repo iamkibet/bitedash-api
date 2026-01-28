@@ -25,8 +25,7 @@ class RestaurantController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $this->authorize('viewAny', Restaurant::class);
-
+        // Public route - no authorization required
         $isOpen = $request->boolean('is_open');
         $restaurants = $this->restaurantService->getAll($isOpen !== false ? $isOpen : null);
 
@@ -48,7 +47,8 @@ class RestaurantController extends Controller
     {
         $restaurant = $this->restaurantService->create(
             $request->user(),
-            $request->validated()
+            $request->validated(),
+            $request->file('image')
         );
 
         return response()->json([
@@ -62,8 +62,7 @@ class RestaurantController extends Controller
      */
     public function show(Restaurant $restaurant): JsonResponse
     {
-        $this->authorize('view', $restaurant);
-
+        // Public route - no authorization required
         $restaurant = $this->restaurantService->getById($restaurant->id);
 
         return response()->json([
@@ -78,7 +77,8 @@ class RestaurantController extends Controller
     {
         $restaurant = $this->restaurantService->update(
             $restaurant,
-            $request->validated()
+            $request->validated(),
+            $request->file('image')
         );
 
         return response()->json([

@@ -198,7 +198,7 @@ class OrderController extends Controller
     {
         $this->authorize('viewAny', Order::class);
 
-        if (!$request->user()->isRider()) {
+        if (!$request->user()->isRider() && !$request->user()->isAdmin()) {
             return response()->json([
                 'message' => 'Only riders can view available orders.',
             ], 403);
@@ -287,13 +287,19 @@ class OrderController extends Controller
      */
     public function myRestaurantOrders(Request $request): JsonResponse
     {
-        if (!$request->user()->isRestaurant()) {
+        if (!$request->user()->isRestaurant() && !$request->user()->isAdmin()) {
             return response()->json([
                 'message' => 'Only restaurant owners can access this endpoint.',
             ], 403);
         }
 
-        $orders = $this->orderService->getAllForRestaurantOwner($request->user());
+        // For admin, get all orders; for restaurant owner, get their restaurant's orders
+        $user = $request->user();
+        if ($user->isAdmin()) {
+            $orders = $this->orderService->getAllForUser($user);
+        } else {
+            $orders = $this->orderService->getAllForRestaurantOwner($user);
+        }
 
         return response()->json([
             'data' => OrderResource::collection($orders->items()),

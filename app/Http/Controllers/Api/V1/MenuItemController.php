@@ -29,8 +29,7 @@ class MenuItemController extends Controller
      */
     public function index(Request $request, Restaurant $restaurant): JsonResponse
     {
-        $this->authorize('viewAny', MenuItem::class);
-
+        // Public route - no authorization required
         $isAvailable = $request->boolean('is_available');
         $menuItems = $this->menuItemService->getByRestaurant(
             $restaurant->id,
@@ -133,8 +132,7 @@ class MenuItemController extends Controller
      */
     public function show(MenuItem $menuItem): JsonResponse
     {
-        $this->authorize('view', $menuItem);
-
+        // Public route - no authorization required
         $menuItem = $this->menuItemService->getById($menuItem->id);
 
         return response()->json([

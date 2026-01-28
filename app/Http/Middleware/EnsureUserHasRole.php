@@ -24,6 +24,11 @@ class EnsureUserHasRole
             ], Response::HTTP_UNAUTHORIZED);
         }
 
+        // Admin can bypass role restrictions
+        if ($request->user()->isAdmin()) {
+            return $next($request);
+        }
+
         if (!in_array($request->user()->role, $roles, true)) {
             return response()->json([
                 'message' => 'Forbidden. Insufficient permissions.',

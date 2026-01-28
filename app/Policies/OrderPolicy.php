@@ -47,8 +47,8 @@ class OrderPolicy
      */
     public function create(User $user): bool
     {
-        // Only customers can create orders
-        return $user->isCustomer();
+        // Customers and admins can create orders
+        return $user->isCustomer() || $user->isAdmin();
     }
 
     /**
@@ -107,6 +107,11 @@ class OrderPolicy
      */
     public function accept(User $user, Order $order): bool
     {
+        // Admins can accept any order
+        if ($user->isAdmin()) {
+            return $order->status === Order::STATUS_PREPARING && $order->rider_id === null;
+        }
+
         // Only riders can accept orders, and only if order is in preparing status
         return $user->isRider()
             && $order->status === Order::STATUS_PREPARING

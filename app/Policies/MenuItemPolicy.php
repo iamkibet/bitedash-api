@@ -32,6 +32,11 @@ class MenuItemPolicy
      */
     public function create(User $user, ?int $restaurantId = null): bool
     {
+        // Admins can create menu items for any restaurant
+        if ($user->isAdmin()) {
+            return true;
+        }
+
         // Only restaurant owners can create menu items
         if (!$user->isRestaurant()) {
             return false;
@@ -40,7 +45,7 @@ class MenuItemPolicy
         // If restaurant_id is provided, check ownership
         if ($restaurantId !== null) {
             $restaurant = \App\Models\Restaurant::find($restaurantId);
-            return $restaurant && $restaurant->owner_id === $user->id;
+            return $restaurant && ($restaurant->owner_id === $user->id || $user->isAdmin());
         }
 
         return true;
@@ -87,7 +92,7 @@ class MenuItemPolicy
      */
     public function toggleAvailability(User $user, MenuItem $menuItem): bool
     {
-        // Only the restaurant owner can toggle availability
-        return $user->id === $menuItem->restaurant->owner_id;
+        // Owner and admin can toggle availability
+        return $user->id === $menuItem->restaurant->owner_id || $user->isAdmin();
     }
 }

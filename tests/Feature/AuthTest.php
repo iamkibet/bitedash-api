@@ -2,12 +2,14 @@
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 
 uses(RefreshDatabase::class);
 
-beforeEach(function () {
-    $this->userData = [
+function getUserData(): array
+{
+    return [
         'name' => 'John Doe',
         'email' => 'john@example.com',
         'phone' => '+254712345678',
@@ -15,10 +17,11 @@ beforeEach(function () {
         'password_confirmation' => 'Password123!@#',
         'role' => 'customer',
     ];
-});
+}
 
 test('user can register with valid data', function () {
-    $response = $this->postJson('/api/v1/register', $this->userData);
+    $userData = getUserData();
+    $response = $this->postJson('/api/v1/register', $userData);
 
     $response->assertStatus(201)
         ->assertJsonStructure([
@@ -27,6 +30,7 @@ test('user can register with valid data', function () {
             'token',
         ]);
 
+    /** @var \Tests\TestCase $this */
     $this->assertDatabaseHas('users', [
         'email' => 'john@example.com',
         'phone' => '+254712345678',
@@ -35,28 +39,32 @@ test('user can register with valid data', function () {
 });
 
 test('user cannot register with invalid phone number', function () {
-    $this->userData['phone'] = '123456789'; // Invalid format
+    $userData = getUserData();
+    $userData['phone'] = '123456789'; // Invalid format
 
-    $response = $this->postJson('/api/v1/register', $this->userData);
+    $response = $this->postJson('/api/v1/register', $userData);
 
     $response->assertStatus(422)
         ->assertJsonValidationErrors(['phone']);
 });
 
 test('user cannot register with weak password', function () {
-    $this->userData['password'] = 'weak';
-    $this->userData['password_confirmation'] = 'weak';
+    $userData = getUserData();
+    $userData['password'] = 'weak';
+    $userData['password_confirmation'] = 'weak';
 
-    $response = $this->postJson('/api/v1/register', $this->userData);
+    /** @var TestResponse $response */
+    $response = $this->postJson('/api/v1/register', $userData);
 
     $response->assertStatus(422)
         ->assertJsonValidationErrors(['password']);
 });
 
 test('user can login with valid credentials', function () {
+    // Don't use bcrypt() - the User model mutator will hash it automatically
     $user = User::factory()->create([
         'email' => 'john@example.com',
-        'password' => bcrypt('Password123!@#'),
+        'password' => 'Password123!@#',
     ]);
 
     $response = $this->postJson('/api/v1/login', [
@@ -73,9 +81,10 @@ test('user can login with valid credentials', function () {
 });
 
 test('user cannot login with invalid credentials', function () {
+    // Don't use bcrypt() - the User model mutator will hash it automatically
     $user = User::factory()->create([
         'email' => 'john@example.com',
-        'password' => bcrypt('Password123!@#'),
+        'password' => 'Password123!@#',
     ]);
 
     $response = $this->postJson('/api/v1/login', [
@@ -122,9 +131,10 @@ test('unauthenticated user cannot access protected routes', function () {
 });
 
 test('login endpoint is rate limited', function () {
+    // Don't use bcrypt() - the User model mutator will hash it automatically
     $user = User::factory()->create([
         'email' => 'john@example.com',
-        'password' => bcrypt('Password123!@#'),
+        'password' => 'Password123!@#',
     ]);
 
     // Attempt login 6 times (limit is 5 per minute)

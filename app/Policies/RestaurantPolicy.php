@@ -32,8 +32,8 @@ class RestaurantPolicy
      */
     public function create(User $user): bool
     {
-        // Only restaurant role users can create restaurants
-        return $user->isRestaurant();
+        // Restaurant owners and admins can create restaurants
+        return $user->isRestaurant() || $user->isAdmin();
     }
 
     /**
@@ -77,7 +77,7 @@ class RestaurantPolicy
      */
     public function toggleStatus(User $user, Restaurant $restaurant): bool
     {
-        // Only the owner can toggle status
-        return $user->id === $restaurant->owner_id;
+        // Owner and admin can toggle status
+        return $user->id === $restaurant->owner_id || $user->isAdmin();
     }
 }

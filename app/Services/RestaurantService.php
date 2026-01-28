@@ -7,6 +7,8 @@ namespace App\Services;
 use App\Models\Restaurant;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 class RestaurantService
 {
@@ -92,11 +94,22 @@ class RestaurantService
     /**
      * Create a new restaurant.
      */
-    public function create(User $owner, array $data): Restaurant
+    public function create(User $owner, array $data, ?UploadedFile $imageFile = null): Restaurant
     {
+        $imageUrl = $data['image_url'] ?? null;
+
+        // Handle image file upload
+        if ($imageFile) {
+            // Store the image and get the path (e.g., "restaurants/filename.jpg")
+            $imagePath = $imageFile->store('restaurants', 'public');
+            // Store just the path, not the full URL - the resource will generate the URL
+            $imageUrl = $imagePath;
+        }
+
         return Restaurant::create([
             'name' => $data['name'],
             'description' => $data['description'] ?? null,
+            'image_url' => $imageUrl,
             'location' => $data['location'],
             'latitude' => $data['latitude'] ?? null,
             'longitude' => $data['longitude'] ?? null,
@@ -108,11 +121,31 @@ class RestaurantService
     /**
      * Update a restaurant.
      */
-    public function update(Restaurant $restaurant, array $data): Restaurant
+    public function update(Restaurant $restaurant, array $data, ?UploadedFile $imageFile = null): Restaurant
     {
+        $imageUrl = $data['image_url'] ?? $restaurant->image_url;
+
+        // Handle image file upload
+        if ($imageFile) {
+            // Delete old image if it exists and is stored locally
+            if ($restaurant->image_url && !filter_var($restaurant->image_url, FILTER_VALIDATE_URL)) {
+                // The image_url might be a path like "restaurants/filename.jpg" or a full URL
+                // If it's a path, delete it
+                if (Storage::disk('public')->exists($restaurant->image_url)) {
+                    Storage::disk('public')->delete($restaurant->image_url);
+                }
+            }
+
+            // Store new image and get the path (e.g., "restaurants/filename.jpg")
+            $imagePath = $imageFile->store('restaurants', 'public');
+            // Store just the path, not the full URL - the resource will generate the URL
+            $imageUrl = $imagePath;
+        }
+
         $restaurant->update([
             'name' => $data['name'] ?? $restaurant->name,
             'description' => $data['description'] ?? $restaurant->description,
+            'image_url' => $imageUrl,
             'location' => $data['location'] ?? $restaurant->location,
             'latitude' => $data['latitude'] ?? $restaurant->latitude,
             'longitude' => $data['longitude'] ?? $restaurant->longitude,
