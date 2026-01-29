@@ -39,6 +39,17 @@ class MenuItemResource extends JsonResource
         }
         // If no image is set, $imageUrl will be null - frontend can handle placeholder
 
+        // Get authenticated user's rating if available (from eager loaded relationship)
+        $userRating = null;
+        if ($request->user() && $this->relationLoaded('ratings')) {
+            // The ratings relationship is filtered to only include the user's rating
+            $userRating = $this->ratings->first();
+        }
+
+        // Get average rating and count from eager loaded attributes
+        $averageRating = $this->ratings_avg_rating ?? $this->average_rating;
+        $ratingsCount = $this->ratings_count ?? 0;
+
         return [
             'id' => $this->id,
             'restaurant_id' => $this->restaurant_id,
@@ -48,6 +59,17 @@ class MenuItemResource extends JsonResource
             'image_url' => $imageUrl,
             'is_available' => $this->is_available,
             'restaurant' => new RestaurantResource($this->whenLoaded('restaurant')),
+            'ratings' => [
+                'average' => $averageRating !== null ? round((float) $averageRating, 2) : null,
+                'count' => $ratingsCount,
+                'user_rating' => $userRating ? [
+                    'id' => $userRating->id,
+                    'rating' => $userRating->rating,
+                    'comment' => $userRating->comment,
+                    'created_at' => $userRating->created_at?->toIso8601String(),
+                    'updated_at' => $userRating->updated_at?->toIso8601String(),
+                ] : null,
+            ],
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

@@ -15,12 +15,21 @@ class MenuItemService
     /**
      * Get all menu items for a restaurant.
      */
-    public function getByRestaurant(int $restaurantId, ?bool $isAvailable = null): LengthAwarePaginator
+    public function getByRestaurant(int $restaurantId, ?bool $isAvailable = null, ?int $userId = null): LengthAwarePaginator
     {
-        $query = MenuItem::where('restaurant_id', $restaurantId);
+        $query = MenuItem::where('restaurant_id', $restaurantId)
+            ->withCount('ratings')
+            ->withAvg('ratings', 'rating');
 
         if ($isAvailable !== null) {
             $query->where('is_available', $isAvailable);
+        }
+
+        // Eager load user's rating if authenticated
+        if ($userId) {
+            $query->with(['ratings' => function ($q) use ($userId) {
+                $q->where('user_id', $userId);
+            }]);
         }
 
         return $query->paginate(20);
@@ -29,9 +38,20 @@ class MenuItemService
     /**
      * Get a single menu item by ID.
      */
-    public function getById(int $id): ?MenuItem
+    public function getById(int $id, ?int $userId = null): ?MenuItem
     {
-        return MenuItem::with('restaurant')->find($id);
+        $query = MenuItem::with('restaurant')
+            ->withCount('ratings')
+            ->withAvg('ratings', 'rating');
+
+        // Eager load user's rating if authenticated
+        if ($userId) {
+            $query->with(['ratings' => function ($q) use ($userId) {
+                $q->where('user_id', $userId);
+            }]);
+        }
+
+        return $query->find($id);
     }
 
     /**

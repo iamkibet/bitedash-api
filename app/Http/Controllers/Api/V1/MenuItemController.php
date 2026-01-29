@@ -31,9 +31,11 @@ class MenuItemController extends Controller
     {
         // Public route - no authorization required
         $isAvailable = $request->boolean('is_available');
+        $userId = $request->user()?->id;
         $menuItems = $this->menuItemService->getByRestaurant(
             $restaurant->id,
-            $isAvailable !== false ? $isAvailable : null
+            $isAvailable !== false ? $isAvailable : null,
+            $userId
         );
 
         return response()->json([
@@ -67,9 +69,11 @@ class MenuItemController extends Controller
         }
 
         $isAvailable = $request->boolean('is_available');
+        $userId = $request->user()?->id;
         $menuItems = $this->menuItemService->getByRestaurant(
             $restaurant->id,
-            $isAvailable !== false ? $isAvailable : null
+            $isAvailable !== false ? $isAvailable : null,
+            $userId
         );
 
         return response()->json([
@@ -130,10 +134,11 @@ class MenuItemController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(MenuItem $menuItem): JsonResponse
+    public function show(Request $request, MenuItem $menuItem): JsonResponse
     {
         // Public route - no authorization required
-        $menuItem = $this->menuItemService->getById($menuItem->id);
+        $userId = $request->user()?->id;
+        $menuItem = $this->menuItemService->getById($menuItem->id, $userId);
 
         return response()->json([
             'data' => new MenuItemResource($menuItem),

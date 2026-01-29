@@ -1,9 +1,11 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\FavouriteController;
 use App\Http\Controllers\Api\V1\MenuItemController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\PaymentController;
+use App\Http\Controllers\Api\V1\RatingController;
 use App\Http\Controllers\Api\V1\RestaurantController;
 use App\Http\Controllers\Api\V1\UserController;
 use Illuminate\Support\Facades\Route;
@@ -40,6 +42,9 @@ Route::prefix('v1')->group(function (): void {
     Route::get('/stores/{restaurant}', [RestaurantController::class, 'show'])->name('api.v1.stores.show');
     Route::get('/stores/{restaurant}/menu-items', [MenuItemController::class, 'index'])->name('api.v1.menu-items.index');
     Route::get('/menu-items/{menuItem}', [MenuItemController::class, 'show'])->name('api.v1.menu-items.show');
+
+    // Public rating routes - anyone can view ratings
+    Route::get('/menu-items/{menuItem}/ratings', [RatingController::class, 'index'])->name('api.v1.ratings.index');
 
     // Backward compatibility routes (deprecated - use /stores instead)
     Route::get('/restaurants', [RestaurantController::class, 'index'])->name('api.v1.restaurants.index');
@@ -141,4 +146,26 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.payments.initiate');
     Route::get('/payments/{reference}/verify', [PaymentController::class, 'verify'])
         ->name('api.v1.payments.verify');
+
+    // Favourite routes (customer only)
+    Route::get('/favourites', [FavouriteController::class, 'index'])
+        ->middleware('role:customer')
+        ->name('api.v1.favourites.index');
+    Route::post('/favourites', [FavouriteController::class, 'store'])
+        ->middleware('role:customer')
+        ->name('api.v1.favourites.store');
+    Route::delete('/favourites/{menuItem}', [FavouriteController::class, 'destroy'])
+        ->middleware('role:customer')
+        ->name('api.v1.favourites.destroy');
+
+    // Rating routes
+    Route::post('/ratings', [RatingController::class, 'store'])
+        ->middleware('role:customer')
+        ->name('api.v1.ratings.store');
+    Route::put('/ratings/{rating}', [RatingController::class, 'update'])
+        ->middleware('role:customer')
+        ->name('api.v1.ratings.update');
+    Route::delete('/ratings/{rating}', [RatingController::class, 'destroy'])
+        ->middleware('role:customer')
+        ->name('api.v1.ratings.destroy');
 });

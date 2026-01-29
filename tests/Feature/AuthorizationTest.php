@@ -2,6 +2,7 @@
 
 use App\Models\MenuItem;
 use App\Models\Order;
+use App\Models\Rating;
 use App\Models\Restaurant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -804,4 +805,179 @@ test('admin can view any user resource', function () {
     // Admin can view riders
     $response = $this->getJson('/api/v1/riders');
     $response->assertStatus(200);
+});
+
+test('customer cannot access users or riders list', function () {
+    $customer = User::factory()->customer()->create();
+    Sanctum::actingAs($customer);
+
+    $response = $this->getJson('/api/v1/users');
+    $response->assertStatus(403);
+
+    $response = $this->getJson('/api/v1/riders');
+    $response->assertStatus(403);
+});
+
+test('rider cannot access users or riders list', function () {
+    $rider = User::factory()->rider()->create();
+    Sanctum::actingAs($rider);
+
+    $response = $this->getJson('/api/v1/users');
+    $response->assertStatus(403);
+
+    $response = $this->getJson('/api/v1/riders');
+    $response->assertStatus(403);
+});
+
+// ============================================================================
+// FAVOURITES ROUTES (customer only)
+// ============================================================================
+
+test('unauthenticated user cannot access favourites', function () {
+    $response = $this->getJson('/api/v1/favourites');
+    $response->assertStatus(401);
+
+    $response = $this->postJson('/api/v1/favourites', ['menu_item_id' => 1]);
+    $response->assertStatus(401);
+
+    $response = $this->deleteJson('/api/v1/favourites/1');
+    $response->assertStatus(401);
+});
+
+test('restaurant owner cannot access favourites', function () {
+    $restaurantOwner = User::factory()->restaurant()->create();
+    $menuItem = MenuItem::factory()->create();
+    Sanctum::actingAs($restaurantOwner);
+
+    $response = $this->getJson('/api/v1/favourites');
+    $response->assertStatus(403);
+
+    $response = $this->postJson('/api/v1/favourites', ['menu_item_id' => $menuItem->id]);
+    $response->assertStatus(403);
+
+    $response = $this->deleteJson("/api/v1/favourites/{$menuItem->id}");
+    $response->assertStatus(403);
+});
+
+test('rider cannot access favourites', function () {
+    $rider = User::factory()->rider()->create();
+    $menuItem = MenuItem::factory()->create();
+    Sanctum::actingAs($rider);
+
+    $response = $this->getJson('/api/v1/favourites');
+    $response->assertStatus(403);
+
+    $response = $this->postJson('/api/v1/favourites', ['menu_item_id' => $menuItem->id]);
+    $response->assertStatus(403);
+
+    $response = $this->deleteJson("/api/v1/favourites/{$menuItem->id}");
+    $response->assertStatus(403);
+});
+
+// ============================================================================
+// RATINGS ROUTES (customer only, ownership on update/delete)
+// ============================================================================
+
+test('unauthenticated user cannot create or modify ratings', function () {
+    $menuItem = MenuItem::factory()->create();
+
+    $response = $this->postJson('/api/v1/ratings', [
+        'menu_item_id' => $menuItem->id,
+        'rating' => 5,
+    ]);
+    $response->assertStatus(401);
+
+    $user = User::factory()->create();
+    $menuItemForRating = MenuItem::factory()->create();
+    $rating = Rating::create(['user_id' => $user->id, 'menu_item_id' => $menuItemForRating->id, 'rating' => 5]);
+    $response = $this->putJson("/api/v1/ratings/{$rating->id}", ['rating' => 4]);
+    $response->assertStatus(401);
+
+    $response = $this->deleteJson("/api/v1/ratings/{$rating->id}");
+    $response->assertStatus(401);
+});
+
+test('restaurant owner cannot create or modify ratings', function () {
+    $restaurantOwner = User::factory()->restaurant()->create();
+    $menuItem = MenuItem::factory()->create(['restaurant_id' => Restaurant::factory()->create()->id]);
+    Sanctum::actingAs($restaurantOwner);
+
+    $response = $this->postJson('/api/v1/ratings', [
+        'menu_item_id' => $menuItem->id,
+        'rating' => 5,
+    ]);
+    $response->assertStatus(403);
+
+    $otherUser = User::factory()->create();
+    $menuItemForRating = MenuItem::factory()->create();
+    $rating = Rating::create(['user_id' => $otherUser->id, 'menu_item_id' => $menuItemForRating->id, 'rating' => 5]);
+    $response = $this->putJson("/api/v1/ratings/{$rating->id}", ['rating' => 4]);
+    $response->assertStatus(403);
+
+    $response = $this->deleteJson("/api/v1/ratings/{$rating->id}");
+    $response->assertStatus(403);
+});
+
+test('rider cannot create or modify ratings', function () {
+    $rider = User::factory()->rider()->create();
+    $menuItem = MenuItem::factory()->create();
+    Sanctum::actingAs($rider);
+
+    $response = $this->postJson('/api/v1/ratings', [
+        'menu_item_id' => $menuItem->id,
+        'rating' => 5,
+    ]);
+    $response->assertStatus(403);
+
+    $otherUser = User::factory()->create();
+    $menuItemForRating = MenuItem::factory()->create();
+    $rating = Rating::create(['user_id' => $otherUser->id, 'menu_item_id' => $menuItemForRating->id, 'rating' => 5]);
+    $response = $this->putJson("/api/v1/ratings/{$rating->id}", ['rating' => 4]);
+    $response->assertStatus(403);
+
+    $response = $this->deleteJson("/api/v1/ratings/{$rating->id}");
+    $response->assertStatus(403);
+});
+
+test('customer can only update their own rating', function () {
+    $customer1 = User::factory()->customer()->create();
+    $customer2 = User::factory()->customer()->create();
+    $menuItem = MenuItem::factory()->create();
+    $ratingOwn = Rating::create([
+        'user_id' => $customer1->id,
+        'menu_item_id' => $menuItem->id,
+        'rating' => 5,
+    ]);
+    $ratingOther = Rating::create([
+        'user_id' => $customer2->id,
+        'menu_item_id' => $menuItem->id,
+        'rating' => 4,
+    ]);
+    Sanctum::actingAs($customer1);
+
+    $response = $this->putJson("/api/v1/ratings/{$ratingOwn->id}", ['rating' => 3]);
+    $response->assertStatus(200);
+
+    $response = $this->putJson("/api/v1/ratings/{$ratingOther->id}", ['rating' => 1]);
+    $response->assertStatus(403);
+});
+
+test('customer can only delete their own rating', function () {
+    $customer1 = User::factory()->customer()->create();
+    $customer2 = User::factory()->customer()->create();
+    $menuItem = MenuItem::factory()->create();
+    Rating::create([
+        'user_id' => $customer1->id,
+        'menu_item_id' => $menuItem->id,
+        'rating' => 5,
+    ]);
+    $ratingOther = Rating::create([
+        'user_id' => $customer2->id,
+        'menu_item_id' => $menuItem->id,
+        'rating' => 4,
+    ]);
+    Sanctum::actingAs($customer1);
+
+    $response = $this->deleteJson("/api/v1/ratings/{$ratingOther->id}");
+    $response->assertStatus(403);
 });

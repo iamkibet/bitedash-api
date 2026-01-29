@@ -6,6 +6,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -83,6 +84,31 @@ class User extends Authenticatable
     public function riderOrders(): HasMany
     {
         return $this->hasMany(Order::class, 'rider_id');
+    }
+
+    /**
+     * Get the menu items favourited by this user.
+     */
+    public function favourites(): HasMany
+    {
+        return $this->hasMany(Favourite::class);
+    }
+
+    /**
+     * Get the menu items favourited by this user (many-to-many).
+     */
+    public function favouriteMenuItems(): BelongsToMany
+    {
+        return $this->belongsToMany(MenuItem::class, 'favourites')
+            ->withTimestamps();
+    }
+
+    /**
+     * Get the ratings created by this user.
+     */
+    public function ratings(): HasMany
+    {
+        return $this->hasMany(Rating::class);
     }
 
     /**
