@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AdminStoreController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\FavouriteController;
 use App\Http\Controllers\Api\V1\MenuItemController;
@@ -58,6 +59,13 @@ Route::prefix('v1')->group(function (): void {
 
 // Protected routes
 Route::prefix('v1')->middleware('auth:sanctum')->group(function (): void {
+    // Admin-only routes
+    Route::middleware('role:admin')->prefix('admin')->group(function (): void {
+        Route::get('/stores', [AdminStoreController::class, 'index'])->name('api.v1.admin.stores.index');
+        Route::put('/stores/{restaurant}', [AdminStoreController::class, 'update'])->name('api.v1.admin.stores.update');
+        Route::patch('/stores/{restaurant}', [AdminStoreController::class, 'update'])->name('api.v1.admin.stores.patch');
+    });
+
     // Authentication routes
     Route::post('/logout', [AuthController::class, 'logout'])->name('api.v1.logout');
     Route::get('/me', [AuthController::class, 'me'])->name('api.v1.me');

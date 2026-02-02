@@ -1,44 +1,247 @@
-# BiteDash Frontend Development Prompt (React + TypeScript)
+# BiteDash Frontend – Full Specification for Cursor
 
-## Project Overview
-Build a modern, responsive React frontend application for BiteDash, a food delivery platform for the Kenyan market. The frontend will consume the BiteDash API (Laravel 12 + Sanctum) that has already been built and is ready for integration.
+Use this document as the **single source of truth** to build the entire BiteDash React frontend. Implement features in the **Implementation order** section. Do **not** use `/restaurants` or `/restaurants/...` in any request; use **`/stores`** and **`/stores/...`** only. All API paths are relative to the base URL below.
 
-## API Base URL
+---
+
+## 1. Instructions for Cursor
+
+- **Base URL for all API calls**: `http://bitedash-api.test/api/v1` (no trailing slash). Configure via `VITE_API_BASE_URL` in `.env`.
+- **Authentication**: Laravel Sanctum. Send `Authorization: Bearer <token>` on every request that requires auth. Store token after login/register; clear on logout and on 401.
+- **Headers**: Always send `Content-Type: application/json` and `Accept: application/json`.
+- **Paths**: Use the paths in the "Complete API Endpoint Reference" table exactly (e.g. `GET /stores`, `GET /stores/{id}/menu-items`, not `/restaurants`).
+- **Errors**: Handle 401 (redirect to login), 403 (show "You don't have permission"), 404 (not found), 422 (show `errors` object per field), 429 (rate limit message).
+- **Pagination**: List endpoints return `{ data: T[], meta: { current_page, last_page, per_page, total } }`. Use query param `?page=1`, `?page=2` for next page; optional filters as specified per endpoint.
+- **Types**: Define TypeScript types/interfaces for every API response and request body listed in this doc; use them in API client and components.
+
+---
+
+## 2. API Base URL and Environment
+
 ```
 Base URL: http://bitedash-api.test/api/v1
-Authentication: Bearer Token (Sanctum)
+Authentication: Bearer Token (Laravel Sanctum)
 ```
 
-## Core Technical Requirements
+**.env (Vite)**
+```env
+VITE_API_BASE_URL=http://bitedash-api.test/api/v1
+VITE_APP_NAME=BiteDash
+```
+
+Use `import.meta.env.VITE_API_BASE_URL` for the base URL. Do not hardcode the API URL in components.
+
+---
+
+## 3. Complete API Endpoint Reference
+
+Every request is `BASE_URL + path`. Auth = send Bearer token. Role = API returns 403 if user role is not allowed.
+
+| Method | Path | Auth | Role | Description |
+|--------|------|------|------|-------------|
+| POST | `/register` | No | - | Register. Body: name, email, phone, password, password_confirmation, role (customer\|restaurant\|rider). |
+| POST | `/login` | No | - | Login. Body: email, password. Rate limit: 5/min. |
+| POST | `/logout` | Yes | - | Logout. |
+| GET | `/me` | Yes | - | Current user. Also GET `/user` (alias). |
+| GET | `/stores` | No | - | List stores. Query: `is_open` (bool, optional). Paginated. |
+| GET | `/stores/my-store` | Yes | restaurant | Restaurant owner's own store. 404 if none. |
+| GET | `/stores/{id}` | No | - | Single store. |
+| POST | `/stores` | Yes | restaurant | Create store. |
+| PUT/PATCH | `/stores/{id}` | Yes | - | Update store (own only; policy). |
+| DELETE | `/stores/{id}` | Yes | - | Delete store (own only). |
+| POST | `/stores/{id}/toggle-status` | Yes | restaurant | Toggle open/closed. |
+| GET | `/stores/{id}/menu-items` | No | - | Menu items for store. Query: `is_available` (bool, optional). Paginated. |
+| GET | `/menu-items/my-restaurant` | Yes | restaurant | Menu items for own restaurant. Paginated. |
+| GET | `/menu-items/{id}` | No | - | Single menu item. If auth customer: includes `ratings.user_rating`. |
+| POST | `/menu-items` | Yes | restaurant | Create menu item. |
+| PUT/PATCH | `/menu-items/{id}` | Yes | - | Update menu item (own restaurant only). |
+| DELETE | `/menu-items/{id}` | Yes | - | Delete menu item (own restaurant only). |
+| POST | `/menu-items/{id}/toggle-availability` | Yes | restaurant | Toggle availability. |
+| GET | `/menu-items/{id}/ratings` | No | - | Ratings for menu item. Paginated. Meta: average_rating, total_ratings. |
+| POST | `/ratings` | Yes | customer | Create rating (must have ordered & paid for item). Body: menu_item_id, rating (1-5), comment (optional). |
+| PUT | `/ratings/{id}` | Yes | customer | Update own rating. Body: rating, comment. |
+| DELETE | `/ratings/{id}` | Yes | customer | Delete own rating. |
+| GET | `/orders` | Yes | - | User's orders (customer: own; restaurant: filtered by policy; rider: assigned). Paginated. |
+| GET | `/orders/available` | Yes | rider | Orders available for riders. Paginated. |
+| GET | `/orders/my-rider` | Yes | rider | Rider's assigned orders. Paginated. |
+| GET | `/orders/my-restaurant` | Yes | restaurant | Restaurant's orders. Paginated. |
+| POST | `/orders` | Yes | customer | Create order. Body: restaurant_id, items: [{ menu_item_id, quantity }], delivery_address?, notes?. |
+| GET | `/orders/{id}` | Yes | - | Order detail (policy: customer own, restaurant own store, rider assigned). |
+| PUT/PATCH | `/orders/{id}` | Yes | - | Update order (e.g. status, rider_id). Policy per role. |
+| DELETE | `/orders/{id}` | Yes | - | Delete order (policy). |
+| POST | `/orders/{id}/cancel` | Yes | - | Cancel order. |
+| POST | `/orders/{id}/accept` | Yes | rider | Rider accept order. |
+| POST | `/orders/{id}/payments/initiate` | Yes | customer | Initiate M-Pesa. Body: phone_number (Kenyan). |
+| GET | `/payments/{reference}/verify` | Yes | - | Verify payment. |
+| GET | `/stores/{id}/orders` | Yes | restaurant | Orders for store. Paginated. |
+| GET | `/stores/{id}/orders/pending` | Yes | restaurant | Pending orders for store. Paginated. |
+| GET | `/favourites` | Yes | customer | User's favourites. Paginated. |
+| POST | `/favourites` | Yes | customer | Add favourite. Body: menu_item_id. |
+| DELETE | `/favourites/{menuItemId}` | Yes | customer | Remove favourite (id = menu item id). |
+| GET | `/users` | Yes | restaurant, admin | List users. Query: role (optional). Paginated. |
+| GET | `/riders` | Yes | restaurant, admin | List riders. Paginated. |
+
+---
+
+## 4. Request and Response Shapes
+
+### 4.1 Authentication
+
+**POST /register**  
+Request:
+```json
+{
+  "name": "string (required, max 255)",
+  "email": "string (required, unique)",
+  "phone": "string (required, regex: +254XXXXXXXXX)",
+  "password": "string (required, min 8, mixed case, numbers, symbols)",
+  "password_confirmation": "string (required)",
+  "role": "customer | restaurant | rider"
+}
+```
+Success 201: `{ "message": string, "user": User, "token": string }`  
+Error 422: `{ "message": string, "errors": Record<string, string[]> }`
+
+**POST /login**  
+Request: `{ "email": string, "password": string }`  
+Success 200: `{ "message": string, "user": User, "token": string }`  
+Error 422: `{ "message": "Invalid credentials.", "errors": { "email": string[] } }`  
+Error 429: Too many attempts.
+
+**GET /me**  
+Success 200: `{ "user": User }`
+
+### 4.2 User and Store (Restaurant)
+
+**User**: `{ id: number, name: string, email: string, phone: string, role: 'customer' | 'restaurant' | 'rider' | 'admin', created_at: string (ISO), updated_at: string (ISO) }`
+
+**Store (Restaurant)**: `{ id: number, name: string, description: string | null, image_url: string | null, location: string, latitude: number | null, longitude: number | null, is_open: boolean, owner?: User, menu_items?: MenuItem[], created_at: string, updated_at: string }`
+
+### 4.3 Menu Item
+
+**MenuItem**: `{ id: number, restaurant_id: number, name: string, description: string | null, price: number, image_url: string | null, is_available: boolean, restaurant?: Store, ratings: { average: number | null, count: number, user_rating: { id: number, rating: number, comment: string | null, created_at: string, updated_at: string } | null }, created_at: string, updated_at: string }`
+
+- For list endpoints, `ratings` may be omitted or simplified; for GET `/menu-items/{id}` when logged in as customer, `ratings.user_rating` is present if they rated.
+
+### 4.4 Order
+
+**Order**: `{ id: number, customer?: User, restaurant?: Store, rider?: User, total_amount: number, total?: number, status: OrderStatus, payment_status: 'unpaid' | 'paid' | 'failed', delivery_address: string | null, notes: string | null, order_items?: OrderItem[], payments?: Payment[], created_at: string, updated_at: string }`
+
+**OrderStatus**: `'pending' | 'preparing' | 'on_the_way' | 'delivered' | 'cancelled'`
+
+**OrderItem**: `{ id: number, menu_item_id: number, quantity: number, unit_price: number, menu_item?: MenuItem }`
+
+**POST /orders**  
+Request: `{ restaurant_id: number, items: { menu_item_id: number, quantity: number }[], delivery_address?: string, notes?: string }`  
+- items: at least one; quantity 1–50 per item.  
+Success 201: `{ "message": string, "data": Order }`  
+Error 422: validation errors in `errors`.
+
+### 4.5 Payment
+
+**POST /orders/{id}/payments/initiate**  
+Request: `{ phone_number: string }` — Kenyan: +254XXXXXXXXX, 254XXXXXXXXX, or 0XXXXXXXXX.  
+Success: API returns payment reference/status; handle per API response.  
+Error 422: already paid, cancelled order, or invalid phone.
+
+**GET /payments/{reference}/verify**  
+Success: payment status in response body.
+
+### 4.6 Favourites
+
+**GET /favourites**  
+Success 200: `{ data: Favourite[], meta: PaginationMeta }`
+
+**Favourite**: `{ id: number, user_id: number, menu_item_id: number, menu_item: MenuItem & { restaurant?: Store }, created_at: string, updated_at: string }`
+
+**POST /favourites**  
+Request: `{ menu_item_id: number }`  
+Success 201: `{ "message": string, "data": Favourite }`  
+Success 200: already favourited — `{ "message": "Menu item is already in your favourites.", "data": Favourite }`
+
+**DELETE /favourites/{menuItemId}**  
+Success 200: `{ "message": string }`  
+Error 404: not in favourites.
+
+### 4.7 Ratings
+
+**GET /menu-items/{id}/ratings**  
+Success 200: `{ data: Rating[], meta: PaginationMeta & { average_rating: number, total_ratings: number } }`
+
+**Rating**: `{ id: number, user_id: number, menu_item_id: number, rating: number (1-5), comment: string | null, user: { id: number, name: string }, created_at: string, updated_at: string }`
+
+**POST /ratings**  
+Request: `{ menu_item_id: number, rating: number (1-5), comment?: string (max 1000) }`  
+- Allowed only if customer has ordered and paid for that menu item; one rating per user per menu item.  
+Success 201: `{ "message": string, "data": Rating }`  
+Error 422: already rated or not allowed (e.g. "You can only rate menu items that you have ordered and paid for." in errors).
+
+**PUT /ratings/{id}**  
+Request: `{ rating?: number (1-5), comment?: string }`  
+Success 200: `{ "message": string, "data": Rating }`  
+Error 403: not owner.
+
+**DELETE /ratings/{id}**  
+Success 200: `{ "message": string }`  
+Error 403: not owner.
+
+### 4.8 Pagination
+
+**PaginationMeta**: `{ current_page: number, last_page: number, per_page: number, total: number }`
+
+All list endpoints: `GET ?page=1` (default), `?page=2`, etc. Stop loading more when `current_page >= last_page`.
+
+---
+
+## 5. Error Handling (Implement Consistently)
+
+| Status | Meaning | Action |
+|--------|---------|--------|
+| 401 | Unauthenticated | Clear token, redirect to login. |
+| 403 | Forbidden (wrong role or resource) | Show message "You don't have permission." Do not redirect to login if already logged in. |
+| 404 | Not found | Show "Resource not found" or page-specific message. |
+| 422 | Validation error | Show `response.data.errors`: object of field names to array of messages. Display per-field below inputs. |
+| 429 | Rate limit (e.g. login) | Show "Too many attempts. Try again later." |
+| 500 | Server error | Show generic "Something went wrong. Please try again." |
+
+Always use `Accept: application/json` so the API returns JSON errors.
+
+---
+
+## 6. Tech Stack and Project Structure
 
 ### Tech Stack
 - **React 18+** with TypeScript
-- **State Management**: Zustand or Redux Toolkit
+- **State**: Zustand or Redux Toolkit
 - **Routing**: React Router v6
-- **HTTP Client**: Axios with interceptors
-- **UI Framework**: Tailwind CSS + Headless UI or shadcn/ui
-- **Form Handling**: React Hook Form + Zod validation
-- **Notifications**: React Hot Toast or Sonner
-- **Date/Time**: date-fns or dayjs
-- **Maps**: React Leaflet (for restaurant locations)
+- **HTTP**: Axios (one instance, base URL + interceptors for token and error handling)
+- **UI**: Tailwind CSS + Headless UI or shadcn/ui
+- **Forms**: React Hook Form + Zod (align validation with API rules)
+- **Toasts**: React Hot Toast or Sonner
+- **Dates**: date-fns or dayjs
+- **Maps**: React Leaflet (store locations)
 - **Icons**: Lucide React or Heroicons
 
-### Project Structure
+### Suggested Project Structure
 ```
 src/
 ├── api/
-│   ├── client.ts (Axios instance with interceptors)
+│   ├── client.ts          # Axios instance: baseURL, Authorization header, 401/422 handling
 │   ├── auth.ts
-│   ├── restaurants.ts
+│   ├── stores.ts
 │   ├── menuItems.ts
 │   ├── orders.ts
-│   └── payments.ts
+│   ├── payments.ts
+│   ├── favourites.ts
+│   └── ratings.ts
 ├── components/
 │   ├── auth/
-│   ├── restaurants/
+│   ├── stores/
 │   ├── menu/
 │   ├── orders/
 │   ├── payments/
+│   ├── favourites/
+│   ├── ratings/
 │   ├── layout/
 │   └── common/
 ├── pages/
@@ -49,550 +252,127 @@ src/
 │   └── Admin/
 ├── hooks/
 │   ├── useAuth.ts
-│   ├── useRestaurants.ts
+│   ├── useStores.ts
+│   ├── useMenuItems.ts
 │   ├── useOrders.ts
-│   └── usePayments.ts
+│   ├── useFavourites.ts
+│   └── useRatings.ts
 ├── store/
 │   ├── authStore.ts
 │   ├── cartStore.ts
 │   └── orderStore.ts
 ├── types/
-│   ├── auth.types.ts
-│   ├── restaurant.types.ts
-│   ├── order.types.ts
-│   └── payment.types.ts
+│   ├── api.types.ts       # User, Store, MenuItem, Order, OrderItem, Payment, Favourite, Rating
+│   ├── pagination.types.ts
+│   └── auth.types.ts
 ├── utils/
-│   ├── formatters.ts
-│   ├── validators.ts
-│   └── constants.ts
+│   ├── formatters.ts      # KES, phone, date
+│   ├── validators.ts      # phone +254, password rules
+│   └── constants.ts       # order status labels, roles
 └── App.tsx
 ```
 
-## Authentication System
+---
 
-### User Roles
-1. **Customer**: Browse restaurants, place orders, make payments
-2. **Restaurant**: Manage restaurant, menu items, view orders
-3. **Rider**: View available orders, accept and deliver orders
-4. **Admin**: Full system access
+## 7. User Roles and Route Guards
 
-### Authentication Flow
+- **customer**: Browse stores/menu, cart, place order, pay, favourites, ratings, own orders.
+- **restaurant**: My store, menu CRUD, store orders, update order status / assign rider.
+- **rider**: Available orders, my orders, accept order, update status to on_the_way / delivered.
+- **admin**: Full access (users, riders, all stores/orders).
 
-#### Registration
-- **Endpoint**: `POST /api/v1/register`
-- **Fields**: name, email, phone (+254XXXXXXXXX), password, password_confirmation, role (customer/restaurant/rider)
-- **Validation**: 
-  - Phone: Kenyan format (+254XXXXXXXXX)
-  - Password: Min 8 chars, mixed case, numbers, symbols
-  - Role: Cannot register as admin
-
-#### Login
-- **Endpoint**: `POST /api/v1/login`
-- **Fields**: email, password
-- **Rate Limited**: 5 attempts per minute
-- **Response**: Returns user object + token
-
-#### Token Management
-- Store token in localStorage or httpOnly cookie
-- Auto-refresh token before expiry
-- Clear token on logout
-- Redirect to login on 401 errors
-
-### Protected Routes
-- Implement route guards based on user roles
-- Redirect unauthorized users appropriately
-- Show role-specific navigation
-
-## Customer Features
-
-### 1. Restaurant Browsing
-- **Endpoint**: `GET /api/v1/restaurants?is_open=true`
-- **Features**:
-  - List all restaurants with pagination
-  - Filter by open/closed status
-  - Search restaurants by name
-  - Display restaurant details: name, description, location, is_open
-  - Show restaurant on map (if coordinates available)
-  - Click restaurant to view menu
-
-### 2. Menu Viewing
-- **Endpoint**: `GET /api/v1/restaurants/{restaurant_id}/menu-items?is_available=true`
-- **Features**:
-  - Display menu items with images, names, descriptions, prices
-  - Filter by availability
-  - Show "Out of Stock" for unavailable items
-  - Add items to cart with quantity selector
-  - Display prices in KES (Kenyan Shillings)
-
-### 3. Shopping Cart
-- **Features**:
-  - Add/remove items
-  - Update quantities (max 50 per item)
-  - Calculate subtotal per item
-  - Calculate total (client-side for display, server validates)
-  - Persist cart in localStorage
-  - Clear cart after successful order
-
-### 4. Order Placement
-- **Endpoint**: `POST /api/v1/orders`
-- **Payload**:
-  ```json
-  {
-    "restaurant_id": 1,
-    "items": [
-      {"menu_item_id": 1, "quantity": 2},
-      {"menu_item_id": 3, "quantity": 1}
-    ],
-    "delivery_address": "Westlands, Nairobi",
-    "notes": "Optional delivery notes"
-  }
-  ```
-- **Features**:
-  - Validate all items are available
-  - Show order summary before submission
-  - Display estimated total (server calculates actual)
-  - Handle validation errors gracefully
-  - Redirect to payment after order creation
-
-### 5. Payment Integration (M-Pesa via Paystack)
-- **Endpoint**: `POST /api/v1/orders/{order_id}/payments/initiate`
-- **Payload**: `{"phone_number": "+254712345678"}`
-- **Features**:
-  - Phone number input with Kenyan format validation
-  - Initiate payment request
-  - Show payment instructions ("Check your phone for payment prompt")
-  - Poll payment status or use webhooks
-  - Display payment status: pending, success, failed
-  - Retry payment on failure
-  - Verify payment: `GET /api/v1/payments/{reference}/verify`
-
-### 6. Order Tracking
-- **Endpoints**: 
-  - `GET /api/v1/orders` (user's orders)
-  - `GET /api/v1/orders/{order_id}`
-- **Features**:
-  - View order history with status badges
-  - Real-time order status updates:
-    - 🟡 Pending (waiting for payment)
-    - 🟢 Preparing (restaurant preparing)
-    - 🔵 On the Way (rider delivering)
-    - ✅ Delivered
-    - ❌ Cancelled
-  - Order details: items, quantities, prices, total, delivery address
-  - Cancel order (only if pending)
-  - Estimated delivery time display
-
-## Restaurant Owner Features
-
-### 1. Restaurant Management
-- **Endpoints**:
-  - `GET /api/v1/restaurants/{id}` - View restaurant
-  - `POST /api/v1/restaurants` - Create restaurant
-  - `PUT /api/v1/restaurants/{id}` - Update restaurant
-  - `POST /api/v1/restaurants/{id}/toggle-status` - Open/Close restaurant
-- **Features**:
-  - Create restaurant profile (name, description, location, coordinates)
-  - Edit restaurant details
-  - Toggle open/closed status with visual indicator
-  - Upload restaurant image
-  - Set location on map
-
-### 2. Menu Management
-- **Endpoints**:
-  - `GET /api/v1/restaurants/{id}/menu-items` - List menu items
-  - `POST /api/v1/menu-items` - Create menu item
-  - `PUT /api/v1/menu-items/{id}` - Update menu item
-  - `DELETE /api/v1/menu-items/{id}` - Delete menu item
-  - `POST /api/v1/menu-items/{id}/toggle-availability` - Toggle availability
-- **Features**:
-  - CRUD operations for menu items
-  - Upload item images
-  - Set prices (KES)
-  - Toggle item availability (available/unavailable)
-  - Bulk operations (mark multiple items as unavailable)
-  - Menu item categories (optional enhancement)
-
-### 3. Order Management
-- **Endpoints**:
-  - `GET /api/v1/restaurants/{id}/orders/pending` - Pending orders
-  - `GET /api/v1/orders/{id}` - Order details
-  - `PUT /api/v1/orders/{id}` - Update order status
-- **Features**:
-  - View pending orders dashboard
-  - Order status workflow:
-    - Pending → Preparing (when payment confirmed)
-    - Preparing → On the Way (when rider accepts)
-  - Order details: customer info, items, delivery address
-  - Accept/reject orders (reject = cancel)
-  - Order notifications/alerts for new orders
-  - Order history with filters
-
-## Rider Features
-
-### 1. Available Orders Pool
-- **Endpoint**: `GET /api/v1/orders/available`
-- **Features**:
-  - View all orders in "preparing" status with no rider assigned
-  - Display: restaurant name, delivery address, order total, distance (if calculated)
-  - Filter by location/distance
-  - Sort by distance or order value
-
-### 2. Accept Orders
-- **Endpoint**: `POST /api/v1/orders/{id}/accept`
-- **Features**:
-  - Accept order (assigns rider to order)
-  - View accepted orders
-  - Update order status:
-    - On the Way (when picking up)
-    - Delivered (when completed)
-  - Cancel accepted order (if needed)
-
-### 3. Delivery Management
-- **Features**:
-  - Active deliveries list
-  - Delivery route optimization (optional)
-  - Mark order as delivered
-  - Delivery history
-  - Earnings tracking (optional enhancement)
-
-## Admin Features
-
-### 1. Dashboard
-- **Features**:
-  - System statistics (orders, users, restaurants, revenue)
-  - Recent activity feed
-  - Quick actions
-
-### 2. User Management
-- **Features**:
-  - View all users
-  - Filter by role
-  - User details
-  - Deactivate users
-
-### 3. Restaurant Management
-- **Features**:
-  - View all restaurants
-  - Approve/disable restaurants
-  - Restaurant analytics
-
-### 4. Order Management
-- **Features**:
-  - View all orders
-  - Filter by status, date, restaurant
-  - Order details and history
-  - Manual order status updates
-
-## UI/UX Requirements
-
-### Design Principles
-- **Modern & Clean**: Use modern design patterns, ample whitespace
-- **Mobile-First**: Responsive design, touch-friendly
-- **Kenyan Context**: Use Kenyan phone formats, KES currency, local addresses
-- **Accessibility**: WCAG 2.1 AA compliance, keyboard navigation
-- **Performance**: Lazy loading, code splitting, image optimization
-
-### Color Scheme
-- Primary: Food delivery theme (warm colors - orange, red, or green)
-- Success: Green for successful actions
-- Warning: Yellow/Orange for pending states
-- Error: Red for errors/failures
-- Neutral: Gray scale for text and backgrounds
-
-### Key UI Components
-
-#### 1. Navigation
-- Role-based navigation menu
-- User profile dropdown
-- Cart icon with item count
-- Notifications bell (for restaurants/riders)
-
-#### 2. Forms
-- Consistent form styling
-- Real-time validation
-- Error messages below fields
-- Loading states on submit
-- Success feedback
-
-#### 3. Cards
-- Restaurant cards with image, name, status badge
-- Menu item cards with image, name, price, add button
-- Order cards with status, items summary, actions
-
-#### 4. Modals/Dialogs
-- Order confirmation
-- Payment initiation
-- Order details
-- Status updates
-
-#### 5. Status Badges
-- Order status: Pending, Preparing, On the Way, Delivered, Cancelled
-- Payment status: Unpaid, Paid, Failed
-- Restaurant status: Open, Closed
-- Menu item: Available, Unavailable
-
-### Responsive Breakpoints
-- Mobile: < 640px
-- Tablet: 640px - 1024px
-- Desktop: > 1024px
-
-## State Management
-
-### Auth Store
-```typescript
-{
-  user: User | null;
-  token: string | null;
-  isAuthenticated: boolean;
-  role: 'customer' | 'restaurant' | 'rider' | 'admin' | null;
-  login: (email, password) => Promise<void>;
-  register: (data) => Promise<void>;
-  logout: () => void;
-  updateProfile: (data) => Promise<void>;
-}
-```
-
-### Cart Store
-```typescript
-{
-  items: CartItem[];
-  restaurantId: number | null;
-  addItem: (menuItem, quantity) => void;
-  removeItem: (menuItemId) => void;
-  updateQuantity: (menuItemId, quantity) => void;
-  clearCart: () => void;
-  getTotal: () => number;
-}
-```
-
-### Order Store
-```typescript
-{
-  orders: Order[];
-  currentOrder: Order | null;
-  fetchOrders: () => Promise<void>;
-  createOrder: (data) => Promise<Order>;
-  updateOrderStatus: (orderId, status) => Promise<void>;
-  cancelOrder: (orderId) => Promise<void>;
-}
-```
-
-## API Integration Patterns
-
-### Axios Configuration
-```typescript
-// api/client.ts
-- Base URL configuration
-- Request interceptor: Add Authorization header
-- Response interceptor: Handle 401 (logout), 422 (validation errors)
-- Error handling: Transform API errors to user-friendly messages
-```
-
-### API Service Functions
-- Type-safe API calls with TypeScript
-- Proper error handling
-- Loading states
-- Retry logic for failed requests
-- Request cancellation for cleanup
-
-### Real-time Updates (Optional Enhancement)
-- WebSocket connection for order status updates
-- Or polling mechanism for order status
-- Push notifications for new orders (restaurants/riders)
-
-## Form Validation
-
-### Registration Form
-- Name: Required, min 2 chars
-- Email: Required, valid email format
-- Phone: Required, Kenyan format (+254XXXXXXXXX)
-- Password: Min 8, mixed case, numbers, symbols
-- Password Confirmation: Must match password
-- Role: Required, one of: customer, restaurant, rider
-
-### Login Form
-- Email: Required, valid email
-- Password: Required
-
-### Order Form
-- Restaurant: Required
-- Items: At least one item, quantities > 0
-- Delivery Address: Required, max 500 chars
-- Notes: Optional, max 1000 chars
-
-### Payment Form
-- Phone Number: Required, Kenyan format
-
-## Error Handling
-
-### Error Types
-1. **Network Errors**: Show "Connection failed, please try again"
-2. **Validation Errors**: Display field-specific errors
-3. **Authentication Errors**: Redirect to login
-4. **Authorization Errors**: Show "You don't have permission"
-5. **Server Errors**: Show generic error message, log details
-
-### Error Display
-- Toast notifications for errors
-- Inline errors for form fields
-- Error boundaries for React errors
-- Retry mechanisms where appropriate
-
-## Loading States
-
-### Implement Loading Indicators For:
-- API requests (spinner or skeleton)
-- Form submissions (disable button, show spinner)
-- Page navigation (page-level loader)
-- Image loading (placeholder/skeleton)
-
-## Testing Requirements
-
-### Unit Tests
-- Utility functions
-- Form validators
-- State management functions
-
-### Integration Tests
-- API service functions
-- Authentication flow
-- Order creation flow
-- Payment flow
-
-### E2E Tests (Optional)
-- Complete user journeys
-- Cross-browser testing
-
-## Performance Optimization
-
-1. **Code Splitting**: Route-based code splitting
-2. **Lazy Loading**: Images, components
-3. **Memoization**: React.memo, useMemo, useCallback
-4. **Virtual Scrolling**: For long lists (orders, restaurants)
-5. **Image Optimization**: WebP format, lazy loading, responsive images
-6. **Bundle Analysis**: Monitor bundle size
-
-## Security Considerations
-
-1. **Token Storage**: Secure storage, httpOnly cookies preferred
-2. **XSS Prevention**: Sanitize user inputs
-3. **CSRF Protection**: Include CSRF tokens if needed
-4. **Input Validation**: Client-side + server-side validation
-5. **HTTPS**: Always use HTTPS in production
-6. **Sensitive Data**: Never log tokens or sensitive info
-
-## Kenyan Market Specifics
-
-1. **Phone Numbers**: Always format as +254XXXXXXXXX
-2. **Currency**: Display all prices in KES (Kenyan Shillings)
-3. **Addresses**: Support Kenyan address formats
-4. **Language**: English (consider Swahili as future enhancement)
-5. **Payment**: M-Pesa integration via Paystack
-6. **Locations**: Nairobi-focused initially, expandable
-
-## Key User Flows
-
-### Customer Flow
-1. Register/Login → Browse Restaurants → View Menu → Add to Cart → Place Order → Pay via M-Pesa → Track Order → Receive Order
-
-### Restaurant Flow
-1. Register/Login → Create Restaurant → Add Menu Items → Receive Order Notification → Accept Order → Update Status (Preparing → Ready) → Order Delivered
-
-### Rider Flow
-1. Register/Login → View Available Orders → Accept Order → Pick Up → Update Status (On the Way) → Deliver → Mark as Delivered
-
-## API Response Formats
-
-### Success Response
-```json
-{
-  "message": "Operation successful",
-  "data": { ... },
-  "meta": { ... } // For paginated responses
-}
-```
-
-### Error Response
-```json
-{
-  "message": "Error message",
-  "errors": {
-    "field": ["Error message"]
-  }
-}
-```
-
-### Paginated Response
-```json
-{
-  "data": [...],
-  "meta": {
-    "current_page": 1,
-    "last_page": 5,
-    "per_page": 15,
-    "total": 75
-  }
-}
-```
-
-## Environment Variables
-
-```env
-VITE_API_BASE_URL=http://bitedash-api.test/api/v1
-VITE_APP_NAME=BiteDash
-VITE_MAP_API_KEY=your_map_api_key (optional)
-```
-
-## Deliverables
-
-1. **Complete React Application** with all features
-2. **Responsive Design** for mobile, tablet, desktop
-3. **TypeScript** with proper type definitions
-4. **Documentation**:
-   - README with setup instructions
-   - Component documentation
-   - API integration guide
-5. **Error Handling** throughout the application
-6. **Loading States** for all async operations
-7. **Form Validation** with user-friendly messages
-8. **Accessibility** features
-9. **Performance Optimizations**
-
-## Additional Enhancements (Nice to Have)
-
-1. **Dark Mode**: Theme switcher
-2. **Offline Support**: Service workers, cached data
-3. **Push Notifications**: For order updates
-4. **Order Tracking Map**: Real-time rider location
-5. **Reviews & Ratings**: Customer reviews for restaurants
-6. **Favorites**: Save favorite restaurants
-7. **Order History Search**: Search past orders
-8. **Multi-language**: English + Swahili
-9. **Analytics**: User behavior tracking
-10. **A/B Testing**: For UI improvements
-
-## Testing the Integration
-
-### Test Scenarios
-1. Register as customer → Browse → Order → Pay → Track
-2. Register as restaurant → Create restaurant → Add menu → Receive order
-3. Register as rider → View available orders → Accept → Deliver
-4. Test error scenarios (network failures, validation errors)
-5. Test authentication (token expiry, logout)
-6. Test role-based access (unauthorized routes)
-
-## Notes
-
-- All prices are in KES (Kenyan Shillings)
-- Phone numbers must be in format: +254XXXXXXXXX
-- Server calculates order totals (never trust client-side totals)
-- Order status transitions are validated server-side
-- Payment webhooks update order status automatically
-- Use the exact API endpoints and request/response formats provided
-- Handle all error cases gracefully
-- Implement proper loading and error states
-- Follow React best practices and modern patterns
+Implement route guards: after loading user from GET `/me`, redirect to role-specific layout. If user hits a route not allowed for their role, show 403 message or redirect to their home.
 
 ---
 
-**Start building the frontend with this comprehensive specification. Ensure all API endpoints are properly integrated, all user roles are supported, and the application is production-ready with proper error handling, loading states, and responsive design.**
+## 8. Implementation Order (Build in This Order)
+
+1. **Setup**
+   - Create React + TypeScript + Vite project, install dependencies (Tailwind, React Router, Axios, state, forms, toasts).
+   - Add `.env` with `VITE_API_BASE_URL=http://bitedash-api.test/api/v1`.
+   - Define TypeScript types for User, Store, MenuItem, Order, OrderItem, Payment, Favourite, Rating, pagination, and API error shape.
+
+2. **API client**
+   - Create Axios instance: baseURL from env, request interceptor adds `Authorization: Bearer <token>` when token exists, response interceptor on 401 clears token and redirects to login; on 422 pass through `errors` for forms.
+   - Implement API functions for auth (register, login, logout, me), stores (list, get, create, update, delete, toggle-status), menu items (list by store, get one, my-restaurant, create, update, delete, toggle-availability), orders (list, get, create, update, cancel, accept, payments initiate, payments verify, store orders, pending), favourites (list, add, remove), ratings (list by menu item, create, update, delete), users, riders. Use the endpoint table and request/response shapes above.
+
+3. **Auth and layout**
+   - Auth store: token + user (from login/register or GET /me on init). Persist token (e.g. localStorage); on app load if token exists call GET /me and set user (and role).
+   - Login and Register pages with validation (phone +254, password rules, role). Handle 422 and 429.
+   - Role-based layout: after auth, route to Customer / Restaurant / Rider / Admin shell with role-specific nav (e.g. customer: Stores, Cart, Orders, Favourites, Profile; restaurant: My Store, Menu, Orders; rider: Available, My Deliveries).
+
+4. **Public and customer**
+   - **Stores**: List (GET /stores) with pagination and optional is_open filter; store card (name, description, image, is_open). Detail page GET /stores/{id} and GET /stores/{id}/menu-items with pagination.
+   - **Menu**: Menu item cards (image, name, price, is_available, ratings.average/count). Single item GET /menu-items/{id}; show ratings and, if customer and ratings.user_rating exists, show “Your rating” and edit/delete.
+   - **Cart**: Client-side cart (store in Zustand + localStorage); add from menu with quantity (max 50); restrict cart to one restaurant at a time; show subtotal and total (server calculates final on order).
+   - **Checkout**: Order summary, delivery_address, notes. POST /orders; on success redirect to payment step. Handle 422 with field errors.
+   - **Payment**: Form with phone_number (Kenyan). POST /orders/{id}/payments/initiate; show “Check your phone” and poll or use GET /payments/{reference}/verify. Show success/failure; on success show order status.
+   - **Orders (customer)**: List GET /orders, detail GET /orders/{id}. Status badges: pending, preparing, on_the_way, delivered, cancelled. Cancel: POST /orders/{id}/cancel when allowed.
+   - **Favourites**: List GET /favourites; add POST /favourites (menu_item_id); remove DELETE /favourites/{menuItemId}. Show heart on menu item when in favourites; handle 200 “already in favourites”.
+   - **Ratings**: On menu item detail, if customer and they have ordered & paid, allow create rating (POST /ratings) or show form; if ratings.user_rating exists show edit (PUT) and delete (DELETE). Display GET /menu-items/{id}/ratings list with average and total in meta. Handle 422 “already rated” and “only rate items you ordered and paid for”.
+
+5. **Restaurant**
+   - **My store**: GET /stores/my-store; if 404 show “Create restaurant” (POST /stores). Else edit (PUT /stores/{id}), toggle open/closed (POST /stores/{id}/toggle-status).
+   - **Menu**: GET /menu-items/my-restaurant; CRUD (POST/PUT/DELETE /menu-items, toggle-availability). Upload image per API (multipart if API supports it).
+   - **Orders**: GET /stores/{id}/orders and GET /stores/{id}/orders/pending; list with status. Detail GET /orders/{id}; update status (PUT /orders/{id}) and assign rider (rider_id) when applicable. Status flow: pending → preparing → on_the_way (when rider accepts) → delivered.
+
+6. **Rider**
+   - **Available**: GET /orders/available; show list; accept POST /orders/{id}/accept.
+   - **My deliveries**: GET /orders/my-rider; detail GET /orders/{id}; update status to on_the_way then delivered via PUT /orders/{id}.
+
+7. **Admin**
+   - GET /users (optional ?role=), GET /riders; list with pagination. View stores and orders (reuse order list/detail with policy allowing admin). No separate “admin API”; admin uses same endpoints with broader policy.
+
+8. **Polish**
+   - Loading states for all API calls; skeleton or spinner.
+   - Toasts for success/error (order placed, payment initiated, rating added, etc.).
+   - Responsive layout (mobile-first); breakpoints as in original doc.
+   - KES formatting; phone display +254; accessibility (labels, focus, contrast).
+
+---
+
+## 9. UI/UX Requirements (Summary)
+
+- **Design**: Modern, clean, mobile-first. Kenyan context: KES, +254 phone, local addresses.
+- **Navigation**: Role-based; profile dropdown; cart icon with count (customer); optional notifications for restaurant/rider.
+- **Forms**: Consistent styling, real-time validation, field-level errors from 422, loading state on submit, success feedback.
+- **Cards**: Store (image, name, status); menu item (image, name, price, add to cart, favourite heart, rating stars); order (status, items summary, actions).
+- **Status badges**: Order: Pending, Preparing, On the Way, Delivered, Cancelled. Payment: Unpaid, Paid, Failed. Store: Open, Closed. Menu item: Available, Unavailable.
+- **Responsive**: Mobile &lt; 640px, Tablet 640–1024px, Desktop &gt; 1024px.
+
+---
+
+## 10. Validation Rules (Match API)
+
+- **Phone**: Kenyan +254XXXXXXXXX (9 digits after +254). Accept also 254XXXXXXXXX and 0XXXXXXXXX for input; normalize before send if needed.
+- **Password**: Min 8, mixed case, numbers, symbols; confirmation must match.
+- **Order**: restaurant_id required; items array min 1; each item: menu_item_id, quantity 1–50; delivery_address optional max 500; notes optional max 1000.
+- **Rating**: rating 1–5; comment optional max 1000. Only allow submit if user has ordered and paid for that menu item (API enforces; show friendly message on 422).
+
+---
+
+## 11. Kenyan Market and Security
+
+- Display all prices in KES (e.g. KES 1,500).
+- Phone: +254 format in forms and display.
+- Store token securely; never log token or sensitive data. Prefer not to store token in localStorage in production if you later move to httpOnly cookie.
+- Use HTTPS in production; ensure CORS allows your frontend origin.
+
+---
+
+## 12. Deliverables Checklist
+
+- [ ] All endpoints from the reference table implemented in API client with correct paths and types.
+- [ ] Auth flow: register, login, logout, GET /me on load; token in headers; 401 → logout and redirect.
+- [ ] Role-based routing and nav (customer, restaurant, rider, admin).
+- [ ] Public: store list/detail, menu list/detail, ratings list; pagination everywhere.
+- [ ] Customer: cart, place order, payment initiate/verify, order list/detail/cancel, favourites list/add/remove, ratings create/update/delete with API rules.
+- [ ] Restaurant: my store CRUD, toggle status, menu CRUD, toggle availability, store orders and pending, order detail and status/rider update.
+- [ ] Rider: available orders, accept, my orders, order detail, status updates to on_the_way and delivered.
+- [ ] Admin: users and riders lists; access to stores and orders as per API policy.
+- [ ] Error handling: 401, 403, 404, 422, 429, 500 with consistent UX.
+- [ ] Loading and empty states; toasts; responsive layout; accessibility basics.
+
+---
+
+**Use this specification as the single source of truth. Implement in the order given. Use `/stores` (not `/restaurants`) for all store and store-scoped endpoints. Ensure every API call uses the base URL and types defined here.**
